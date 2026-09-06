@@ -1,0 +1,7 @@
+{
+    "require": {
+        "league/oauth2-client": "^2.9",
+        "thiagoalessio/tesseract_ocr": "^2.13",
+        "phpmailer/phpmailer": "^7.1"
+    }
+}

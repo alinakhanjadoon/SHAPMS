@@ -1,0 +1,577 @@
+<?php
+session_start();
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
+
+/* ---------- AUTH CHECK ---------- */
+if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'patient') {
+    header("Location: ../auth/login.php");
+    exit();
+}
+
+/* ---------- DB CONNECTION ---------- */
+$conn = new mysqli("localhost", "root", "", "SHAPMS");
+if ($conn->connect_error) die("Database Error");
+
+/* ---------- GET patient_id ---------- */
+$stmt = $conn->prepare("SELECT patient_id FROM patients WHERE user_id=?");
+$stmt->bind_param("i", $_SESSION['user_id']);
+$stmt->execute();
+$stmt->bind_result($patient_id);
+$stmt->fetch();
+$stmt->close();
+
+/* ---------- FETCH BILLS ---------- */
+$stmt = $conn->prepare("
+    SELECT 
+        b.*, 
+        a.appointment_date
+    FROM billing b
+    LEFT JOIN appointments a ON b.appointment_id = a.appointment_id
+    WHERE b.patient_id = ?
+    ORDER BY b.created_at DESC
+");
+$stmt->bind_param("i", $patient_id);
+$stmt->execute();
+$bills = $stmt->get_result();
+?>
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>My Billing | Patient Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=Playfair+Display:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+<style>
+:root {
+    --bg: #f3f0fb;
+    --bg2: #ece8f8;
+    --purple-deep: #7c3aed;
+    --purple-mid: #a78bfa;
+    --purple-light: #ddd6fe;
+    --purple-soft: #ede9fe;
+    --lilac: #c4b5fd;
+    --accent-pink: #f472b6;
+    --text-dark: #1e1b3a;
+    --text-mid: #5b5278;
+    --text-light: #9c8fc0;
+    --border: #e8e2f8;
+    --shadow: rgba(124,58,237,0.10);
+    --unpaid: #ef4444;
+    --paid: #10b981;
+    --pending: #f59e0b;
+    --verified: #3b82f6;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--bg);
+    color: var(--text-dark);
+    min-height: 100vh;
+    position: relative;
+}
+
+/* Animated Gradient Background */
+body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: 
+        radial-gradient(circle at 20% 30%, rgba(167,139,250,0.15) 0%, transparent 50%),
+        radial-gradient(circle at 80% 70%, rgba(244,114,182,0.12) 0%, transparent 50%),
+        radial-gradient(circle at 50% 50%, rgba(124,58,237,0.08) 0%, transparent 60%);
+    z-index: 0;
+    pointer-events: none;
+}
+
+/* Header */
+header {
+    position: relative;
+    z-index: 2;
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(12px);
+    padding: 18px 28px;
+    border-bottom: 1px solid var(--border);
+    box-shadow: 0 4px 20px var(--shadow);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 15px;
+}
+
+header .logo-area {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+header .logo-area i {
+    font-size: 28px;
+    color: var(--purple-deep);
+}
+
+header .logo-area span {
+    font-family: 'Playfair Display', serif;
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--text-dark);
+}
+
+header a {
+    background: linear-gradient(135deg, var(--purple-deep), var(--accent-pink));
+    color: white;
+    padding: 8px 20px;
+    border-radius: 40px;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 13px;
+    transition: all 0.25s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    box-shadow: 0 2px 10px rgba(124,58,237,0.3);
+}
+
+header a:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 18px rgba(124,58,237,0.4);
+}
+
+/* Main Container */
+.container {
+    position: relative;
+    z-index: 2;
+    max-width: 1000px;
+    margin: 40px auto;
+    padding: 0 24px;
+}
+
+/* Stats Header */
+.stats-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 30px;
+    flex-wrap: wrap;
+    gap: 15px;
+}
+
+.stats-header h2 {
+    font-family: 'Playfair Display', serif;
+    font-size: 28px;
+    font-weight: 600;
+    color: var(--text-dark);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.stats-header h2 i {
+    color: var(--purple-deep);
+}
+
+.bill-count {
+    background: var(--purple-soft);
+    padding: 8px 18px;
+    border-radius: 40px;
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--purple-deep);
+}
+
+/* Bill Card */
+.bill-card {
+    background: white;
+    border-radius: 24px;
+    border: 1px solid var(--border);
+    box-shadow: 0 10px 30px var(--shadow);
+    margin-bottom: 24px;
+    overflow: hidden;
+    transition: transform 0.25s, box-shadow 0.25s;
+}
+
+.bill-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 20px 40px rgba(124,58,237,0.15);
+}
+
+/* Card Header */
+.card-header {
+    padding: 20px 24px;
+    background: linear-gradient(135deg, var(--purple-soft), rgba(167,139,250,0.1));
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.card-header-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.card-header-left i {
+    font-size: 28px;
+    color: var(--purple-deep);
+}
+
+.card-header-left h3 {
+    font-family: 'Playfair Display', serif;
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-dark);
+    margin: 0;
+}
+
+.bill-amount {
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--purple-deep);
+}
+
+.bill-amount small {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-mid);
+}
+
+/* Card Body */
+.card-body {
+    padding: 20px 24px;
+}
+
+.info-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 15px;
+    margin-bottom: 16px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+}
+
+.info-row:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+    padding-bottom: 0;
+}
+
+.info-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-mid);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.info-label i {
+    font-size: 14px;
+    color: var(--purple-mid);
+}
+
+.info-value {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-dark);
+}
+
+/* Status Badges */
+.status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 14px;
+    border-radius: 40px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.status-unpaid {
+    background: rgba(239,68,68,0.15);
+    color: var(--unpaid);
+    border: 1px solid rgba(239,68,68,0.3);
+}
+
+.status-paid {
+    background: rgba(16,185,129,0.15);
+    color: var(--paid);
+    border: 1px solid rgba(16,185,129,0.3);
+}
+
+.status-pending {
+    background: rgba(245,158,11,0.15);
+    color: var(--pending);
+    border: 1px solid rgba(245,158,11,0.3);
+}
+
+.status-verified {
+    background: rgba(59,130,246,0.15);
+    color: var(--verified);
+    border: 1px solid rgba(59,130,246,0.3);
+}
+
+/* Action Button */
+.action-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: linear-gradient(135deg, var(--purple-deep), var(--purple-mid));
+    color: white;
+    padding: 8px 20px;
+    border-radius: 40px;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 13px;
+    transition: all 0.25s;
+    border: none;
+    cursor: pointer;
+}
+
+.action-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 18px rgba(124,58,237,0.4);
+}
+
+.waiting-text {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--pending);
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.verified-text {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--paid);
+    font-size: 13px;
+    font-weight: 500;
+}
+
+/* Receipt Image */
+.receipt-section {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+}
+
+.receipt-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-mid);
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.receipt-img {
+    max-width: 200px;
+    border-radius: 16px;
+    border: 1px solid var(--border);
+    box-shadow: 0 4px 12px var(--shadow);
+    transition: transform 0.2s;
+}
+
+.receipt-img:hover {
+    transform: scale(1.02);
+}
+
+/* Empty State */
+.empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    background: white;
+    border-radius: 24px;
+    border: 1px solid var(--border);
+}
+
+.empty-state i {
+    font-size: 64px;
+    color: var(--text-light);
+    margin-bottom: 16px;
+    opacity: 0.5;
+}
+
+.empty-state p {
+    font-size: 18px;
+    color: var(--text-mid);
+    margin-bottom: 8px;
+}
+
+.empty-state small {
+    color: var(--text-light);
+    font-size: 13px;
+}
+
+/* Responsive */
+@media (max-width: 640px) {
+    header {
+        flex-direction: column;
+        text-align: center;
+    }
+    .container {
+        padding: 0 16px;
+        margin: 30px auto;
+    }
+    .stats-header {
+        flex-direction: column;
+        text-align: center;
+    }
+    .card-header {
+        flex-direction: column;
+        text-align: center;
+    }
+    .info-row {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+}
+</style>
+</head>
+<body>
+
+<header>
+    <div class="logo-area">
+        <i class="fas fa-heartbeat"></i>
+        <span>SHAPMS</span>
+    </div>
+    <a href="patientdashboard.php">
+        <i class="fas fa-arrow-left"></i> Back to Dashboard
+    </a>
+</header>
+
+<div class="container">
+    
+    <div class="stats-header">
+        <h2>
+            <i class="fas fa-file-invoice-dollar"></i>
+            My Bills & Payments
+        </h2>
+        <div class="bill-count">
+            <i class="fas fa-receipt"></i> Total: <?= $bills->num_rows ?> Bills
+        </div>
+    </div>
+
+    <?php if($bills->num_rows > 0): ?>
+        <?php while($row = $bills->fetch_assoc()): ?>
+            <div class="bill-card">
+                <div class="card-header">
+                    <div class="card-header-left">
+                        <i class="fas fa-receipt"></i>
+                        <h3>Bill #<?= $row['bill_id'] ?></h3>
+                    </div>
+                    <div class="bill-amount">
+                        Rs. <?= number_format($row['amount'], 0) ?>
+                        <small>PKR</small>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="info-row">
+                        <div class="info-label">
+                            <i class="fas fa-calendar-alt"></i>
+                            Appointment Date
+                        </div>
+                        <div class="info-value">
+                            <?= $row['appointment_date'] 
+                                ? date('d M Y, h:i A', strtotime($row['appointment_date'])) 
+                                : '—' ?>
+                        </div>
+                    </div>
+
+                    <div class="info-row">
+                        <div class="info-label">
+                            <i class="fas fa-credit-card"></i>
+                            Payment Status
+                        </div>
+                        <div class="info-value">
+                            <span class="status-badge status-<?= $row['payment_status'] ?>">
+                                <i class="fas <?= $row['payment_status'] == 'paid' ? 'fa-check-circle' : ($row['payment_status'] == 'unpaid' ? 'fa-times-circle' : 'fa-clock') ?>"></i>
+                                <?= ucfirst($row['payment_status']) ?>
+                            </span>
+                        </div>
+                    </div>
+
+                    <div class="info-row">
+                        <div class="info-label">
+                            <i class="fas fa-shield-alt"></i>
+                            Verification Status
+                        </div>
+                        <div class="info-value">
+                            <span class="status-badge status-<?= $row['verification_status'] ?>">
+                                <i class="fas <?= $row['verification_status'] == 'verified' ? 'fa-check-circle' : ($row['verification_status'] == 'pending' ? 'fa-hourglass-half' : 'fa-clock') ?>"></i>
+                                <?= ucfirst($row['verification_status']) ?>
+                            </span>
+                        </div>
+                    </div>
+
+                    <div class="info-row">
+                        <div class="info-label">
+                            <i class="fas fa-calendar-day"></i>
+                            Bill Date
+                        </div>
+                        <div class="info-value">
+                            <?= date('d M Y', strtotime($row['created_at'])) ?>
+                        </div>
+                    </div>
+
+                    <div class="info-row">
+                        <div>
+                            <?php if($row['payment_status'] == 'unpaid'): ?>
+                                <a class="action-btn" href="upload_receipt.php?bill_id=<?= $row['bill_id'] ?>">
+                                    <i class="fas fa-upload"></i> Upload Receipt
+                                </a>
+                            <?php elseif($row['verification_status'] == 'pending'): ?>
+                                <span class="waiting-text">
+                                    <i class="fas fa-hourglass-half"></i> Waiting for verification
+                                </span>
+                            <?php else: ?>
+                                <span class="verified-text">
+                                    <i class="fas fa-check-circle"></i> Payment Verified
+                                </span>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+
+                    <!-- RECEIPT PREVIEW -->
+                    <?php if(!empty($row['receipt_image'])): ?>
+                        <div class="receipt-section">
+                            <div class="receipt-title">
+                                <i class="fas fa-image"></i> Uploaded Receipt
+                            </div>
+                            <img src="../uploads/receipts/<?= htmlspecialchars($row['receipt_image']) ?>" class="receipt-img" alt="Receipt">
+                        </div>
+                    <?php endif; ?>
+                </div>
+            </div>
+        <?php endwhile; ?>
+    <?php else: ?>
+        <div class="empty-state">
+            <i class="fas fa-receipt"></i>
+            <p>No bills found</p>
+            <small>Your billing records will appear here after your appointments</small>
+        </div>
+    <?php endif; ?>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,17 @@
+{
+    "intelephense.diagnostics.deprecated": false,
+    "intelephense.diagnostics.undefinedTypes": false,
+    "intelephense.diagnostics.undefinedFunctions": false,
+    "intelephense.files.exclude": [
+        "**/.git/**",
+        "**/node_modules/**",
+        "**/vendor/**",
+        "**/PHPMailer/**"
+    ],
+    "php.validate.enable": false,
+    "php.suggest.basic": false,
+    "problems.decorations.enabled": false,
+    "files.exclude": {
+        "**/PHPMailer/**": true
+    }
+}
